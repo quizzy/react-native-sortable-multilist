@@ -7,7 +7,11 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["rect-native", "sortable", "drag and drop"],
+  "keywords": [
+    "rect-native",
+    "sortable",
+    "drag and drop"
+  ],
   "author": "quizzy (https://github.com/quizzy/)",
   "license": "ISC",
   "prepublish": "tsc",
@@ -22,7 +26,7 @@
     "@types/react-native": "^0.60.16"
   },
   "peerDependencies": {
-    "react": "16.8.3",
+    "react": "^16.9.0",
     "react-native": "^0.61.1"
   }
 }
