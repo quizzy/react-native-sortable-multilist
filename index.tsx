@@ -241,7 +241,11 @@ export class DraggableFlatList extends React.Component<Props, State> {
   }
 
   public mapHeaderRefs = () => {
-    if (!Array.isArray(this.props.renderHeader)) {
+    if (!this.props.renderHeader) {
+      return null;
+    }
+
+    if (typeof this.props.renderHeader === 'function') {
       return [React.createRef<View>()];
     }
     const refs = this.props.renderHeader.map((renderFn) => {
@@ -458,10 +462,10 @@ export class DraggableFlatList extends React.Component<Props, State> {
 
     const headerHeightResolves: Array<
       PromiseLike<number>
-    > = this.headerRefs.map(
+    > = this.headerRefs ? this.headerRefs.map(
       (header) =>
         new Promise((resolve, reject) => {
-          if (header === null) {
+          if (header === null || header.current === null) {
             return resolve(0);
           }
 
@@ -469,11 +473,11 @@ export class DraggableFlatList extends React.Component<Props, State> {
             resolve(h || 0),
           );
         }),
-    );
+    ): null;
 
-    const updatedHeaderHeights: number[] = await Promise.all(
+    const updatedHeaderHeights: number[] = headerHeightResolves ? await Promise.all(
       headerHeightResolves,
-    );
+    ): [0];
 
     if (JSON.stringify(updatedItemHeights) !== JSON.stringify(itemHeights)) {
       const largestItemHeight = updatedItemHeights.reduce(
@@ -1252,7 +1256,7 @@ export class DraggableFlatList extends React.Component<Props, State> {
       draggableId === 0 ||
       (isDataMultipleLists && firstItemIds.indexOf(draggableId) > -1);
     const itemRef = isListFirstItem ? firstItemRefs[arrayIndex] : null;
-    const headerRef = isListFirstItem ? headerRefs[arrayIndex] : null;
+    const headerRef = isListFirstItem && headerRefs ? headerRefs[arrayIndex] : null;
 
     const itemTranslateY = new Value(0);
     const clock = new Clock();
