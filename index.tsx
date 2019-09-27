@@ -165,7 +165,7 @@ const mapItemBoundaries = (
 
 // }}}
 
-export class DraggableFlatList extends React.Component<Props, State> {
+export class SortableMultilist extends React.Component<Props, State> {
   // State {{{
   public state = {
     containerHeight: 0,
