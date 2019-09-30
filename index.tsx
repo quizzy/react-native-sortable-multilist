@@ -5,7 +5,7 @@ import {
   findNodeHandle,
   Platform,
   UIManager,
-  View,
+  StyleSheet,
 } from 'react-native';
 import {
   FlatList,
@@ -13,9 +13,9 @@ import {
   PanGestureHandler,
   State as GestureState,
   TapGestureHandler,
+  // @ts-ignore - peer dependency
 } from 'react-native-gesture-handler';
 import Animated, { Easing } from 'react-native-reanimated';
-import styled from 'styled-components';
 // }}}
 
 // global vars {{{
@@ -64,11 +64,18 @@ const {
 // styled-components {{{
 const AnimatedFlatList = Animated.createAnimatedComponent(FlatList);
 
-const FlexContainer = styled(Animated.View)`
-  flex: 1;
-  width: 100%;
-  overflow: ${(props) => (props.noOverflow ? 'hidden' : 'visible')};
-`;
+const styles = StyleSheet.create({
+  flexContainer: {
+    flex: 1,
+    width: '100%',
+  },
+  flexContainerOverflow: {
+    flex: 1,
+    width: '100%',
+    overflow: 'hidden',
+  }
+})
+
 // }}}
 
 // types {{{
@@ -223,10 +230,10 @@ export class SortableMultilist extends React.Component<Props, State> {
 
   public mapFirstItemRefs = () => {
     if (!this.state.isDataMultipleLists) {
-      return [React.createRef<View>()];
+      return [React.createRef<Animated.View>()];
     }
 
-    return (this.props.data as object[][]).map(() => React.createRef<View>());
+    return (this.props.data as object[][]).map(() => React.createRef<Animated.View>());
   }
 
   public mapItemArraysIds = (firstItemIds) => {
@@ -246,11 +253,11 @@ export class SortableMultilist extends React.Component<Props, State> {
     }
 
     if (typeof this.props.renderHeader === 'function') {
-      return [React.createRef<View>()];
+      return [React.createRef<Animated.View>()];
     }
     const refs = this.props.renderHeader.map((renderFn) => {
       if (typeof renderFn === 'function') {
-        return React.createRef<View>();
+        return React.createRef<Animated.View>();
       }
       return null;
     });
@@ -1335,7 +1342,7 @@ export class SortableMultilist extends React.Component<Props, State> {
       ),
     );
 
-    const translateY = this.runTiming(
+    const translateY  = this.runTiming(
       clock,
       itemTranslateY,
       targetTranslateY,
@@ -1381,7 +1388,7 @@ export class SortableMultilist extends React.Component<Props, State> {
         ) : null}
         <Animated.View
           ref={itemRef}
-          // @ts-ignore // tslint error with AnimatedNode<number>
+          // @ts-ignore
           style={style}
         >
           {renderItem(renderPropsWithFns)}
@@ -1407,7 +1414,7 @@ export class SortableMultilist extends React.Component<Props, State> {
         simultaneousHandlers={[this.longPressRef, this.panGestureRef]}
         maxDist={10000}
       >
-        <FlexContainer noOverflow>
+        <Animated.View style={[styles.flexContainerOverflow]}>
           <LongPressGestureHandler
             ref={this.longPressRef}
             minDurationMs={300}
@@ -1416,14 +1423,14 @@ export class SortableMultilist extends React.Component<Props, State> {
             // on android if the movement exceeds the maxDist the longPress will cancel
             maxDist={10000}
           >
-            <FlexContainer>
+            <Animated.View style={[styles.flexContainer]}>
               <PanGestureHandler
                 ref={this.panGestureRef}
                 onGestureEvent={this.onGestureEvent}
                 onHandlerStateChange={this.onGestureEvent}
                 simultaneousHandlers={[this.tapRef, this.longPressRef]}
               >
-                <FlexContainer>
+                <Animated.View style={[styles.flexContainer]}>
                   <AnimatedFlatList
                     ref={this.flatListRef}
                     onScroll={this.onScroll}
@@ -1435,11 +1442,11 @@ export class SortableMultilist extends React.Component<Props, State> {
                     // This seems to be defaulted as true on android!!
                     removeClippedSubviews={false}
                   />
-                </FlexContainer>
+                </Animated.View>
               </PanGestureHandler>
-            </FlexContainer>
+            </Animated.View>
           </LongPressGestureHandler>
-        </FlexContainer>
+        </Animated.View>
       </TapGestureHandler>
     );
     // }}}
