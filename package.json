@@ -16,18 +16,15 @@
   "author": "quizzy (https://github.com/quizzy/)",
   "license": "MIT",
   "prepublish": "tsc",
-  "dependencies": {
-    "@babel/runtime": "^7.6.2",
-    "react-native-gesture-handler": "^1.4.1",
-    "react-native-reanimated": "^1.2.0",
-    "styled-components": "^4.4.0"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/react": "^16.9.3",
     "@types/react-native": "^0.60.16"
   },
   "peerDependencies": {
     "react": "^16.9.0",
-    "react-native": "^0.61.1"
+    "react-native": "^0.61.1",
+    "react-native-gesture-handler": "^1.4.1",
+    "react-native-reanimated": "^1.3.0"
   }
 }
