@@ -1,6 +1,6 @@
 {
   "name": "react-native-sortable-multilist",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "react-native sortable flatlist that works with multiple data arrays and headers",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
