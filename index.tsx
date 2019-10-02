@@ -4,8 +4,8 @@ import {
   Dimensions,
   findNodeHandle,
   Platform,
-  UIManager,
   StyleSheet,
+  UIManager,
 } from 'react-native';
 import {
   FlatList,
@@ -15,7 +15,9 @@ import {
   TapGestureHandler,
   // @ts-ignore - peer dependency
 } from 'react-native-gesture-handler';
+  // @ts-ignore - peer dependency
 import Animated, { Easing } from 'react-native-reanimated';
+import { getStatusBarHeight } from 'react-native-status-bar-height';
 // }}}
 
 // global vars {{{
@@ -28,6 +30,7 @@ const isIPhoneX =
   (winHeight === iPhoneXFullScreenHeight ||
     winHeight === iPhoneXMaxFullScreenHeight);
 const iPhoneXBottomInset = 34;
+const statusBarHeight = !isIOS ? getStatusBarHeight() : 0;
 // }}}
 
 // Animated {{{
@@ -73,8 +76,8 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     overflow: 'hidden',
-  }
-})
+  },
+});
 
 // }}}
 
@@ -230,10 +233,14 @@ export class SortableMultilist extends React.Component<Props, State> {
 
   public mapFirstItemRefs = () => {
     if (!this.state.isDataMultipleLists) {
+      // @ts-ignore think View doesn't exist :shrug:
       return [React.createRef<Animated.View>()];
     }
 
-    return (this.props.data as object[][]).map(() => React.createRef<Animated.View>());
+    return (this.props.data as object[][]).map(() =>
+      // @ts-ignore think View doesn't exist :shrug:
+      React.createRef<Animated.View>(),
+    );
   }
 
   public mapItemArraysIds = (firstItemIds) => {
@@ -253,10 +260,12 @@ export class SortableMultilist extends React.Component<Props, State> {
     }
 
     if (typeof this.props.renderHeader === 'function') {
+      // @ts-ignore think View doesn't exist :shrug:
       return [React.createRef<Animated.View>()];
     }
     const refs = this.props.renderHeader.map((renderFn) => {
       if (typeof renderFn === 'function') {
+        // @ts-ignore think View doesn't exist :shrug:
         return React.createRef<Animated.View>();
       }
       return null;
@@ -467,24 +476,24 @@ export class SortableMultilist extends React.Component<Props, State> {
     );
     const updatedItemHeights: number[] = await Promise.all(itemHeightResolves);
 
-    const headerHeightResolves: Array<
-      PromiseLike<number>
-    > = this.headerRefs ? this.headerRefs.map(
-      (header) =>
-        new Promise((resolve, reject) => {
-          if (header === null || header.current === null) {
-            return resolve(0);
-          }
+    const headerHeightResolves: Array<PromiseLike<number>> = this.headerRefs
+      ? this.headerRefs.map(
+          (header) =>
+            new Promise((resolve, reject) => {
+              if (header === null || header.current === null) {
+                return resolve(0);
+              }
 
-          UIManager.measure(findNodeHandle(header.current), (x, y, w, h) =>
-            resolve(h || 0),
-          );
-        }),
-    ): null;
+              UIManager.measure(findNodeHandle(header.current), (x, y, w, h) =>
+                resolve(h || 0),
+              );
+            }),
+        )
+      : null;
 
-    const updatedHeaderHeights: number[] = headerHeightResolves ? await Promise.all(
-      headerHeightResolves,
-    ): [0];
+    const updatedHeaderHeights: number[] = headerHeightResolves
+      ? await Promise.all(headerHeightResolves)
+      : [0];
 
     if (JSON.stringify(updatedItemHeights) !== JSON.stringify(itemHeights)) {
       const largestItemHeight = updatedItemHeights.reduce(
@@ -492,14 +501,14 @@ export class SortableMultilist extends React.Component<Props, State> {
         0,
       );
       const scrollSpeed = largestItemHeight;
-      const actualSpeed = Math.round(isIOS ? scrollSpeed : scrollSpeed * 0.05);
+      const actualSpeed = Math.round(isIOS ? scrollSpeed : scrollSpeed * 0.1);
       const itemBoundaryOffset = largestItemHeight;
       const requiresOffset =
         isIPhoneX &&
         [iPhoneXFullScreenHeight, iPhoneXMaxFullScreenHeight].includes(height);
       // iPhoneX requires some weird hack when the component takes up the entire screen
       const bottomInset = requiresOffset ? iPhoneXBottomInset : 0;
-      const topInset = requiresOffset ? 0 : flatListOffsetTop;
+      const topInset = requiresOffset ? 0 : flatListOffsetTop + statusBarHeight;
       this.containerHeightValue.setValue(height);
       this.containerLowerBoundValue.setValue(
         // @ts-ignore // AnimatedNode lint error - unexpected number
@@ -507,10 +516,10 @@ export class SortableMultilist extends React.Component<Props, State> {
       );
       this.containerUpperBoundValue.setValue(
         // @ts-ignore // AnimatedNode lint error - unexpected number
-        flatListOffsetTop + itemBoundaryOffset,
+        flatListOffsetTop + itemBoundaryOffset + statusBarHeight,
       );
       // @ts-ignore // AnimatedNode lint error - unexpected number
-      this.containerOffsetTopValue.setValue(flatListOffsetTop);
+      this.containerOffsetTopValue.setValue(flatListOffsetTop + statusBarHeight);
 
       this.itemHeightValues.forEach((itemHeightValue, index) => {
         const itemHeight =
@@ -786,6 +795,12 @@ export class SortableMultilist extends React.Component<Props, State> {
     }
   }
 
+  public handleLongPressCancelled = () => {
+    // @ts-ignore
+    this.flatListRef.current.setNativeProps({ scrollEnabled: true });
+    this.resetClassVariables();
+  }
+
   // }}}
 
   // onLongPress {{{
@@ -822,6 +837,13 @@ export class SortableMultilist extends React.Component<Props, State> {
                 ),
                 this.callHandleLongPress,
               ]),
+              cond(
+                and(
+                  eq(state, GestureState.END),
+                  neq(this.gestureStateValue, GestureState.ACTIVE),
+                ),
+                call([], this.handleLongPressCancelled),
+              ),
             ]),
           ]),
         ]),
@@ -998,6 +1020,8 @@ export class SortableMultilist extends React.Component<Props, State> {
     const [activeItem] = params;
 
     if (activeItem === -1) {
+      // @ts-ignore
+      this.flatListRef.current.setNativeProps({ scrollEnabled: true });
       this.resetClassVariables();
       return;
     }
@@ -1263,7 +1287,8 @@ export class SortableMultilist extends React.Component<Props, State> {
       draggableId === 0 ||
       (isDataMultipleLists && firstItemIds.indexOf(draggableId) > -1);
     const itemRef = isListFirstItem ? firstItemRefs[arrayIndex] : null;
-    const headerRef = isListFirstItem && headerRefs ? headerRefs[arrayIndex] : null;
+    const headerRef =
+      isListFirstItem && headerRefs ? headerRefs[arrayIndex] : null;
 
     const itemTranslateY = new Value(0);
     const clock = new Clock();
@@ -1342,7 +1367,7 @@ export class SortableMultilist extends React.Component<Props, State> {
       ),
     );
 
-    const translateY  = this.runTiming(
+    const translateY = this.runTiming(
       clock,
       itemTranslateY,
       targetTranslateY,
