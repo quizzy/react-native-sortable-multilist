@@ -1,6 +1,6 @@
 {
   "name": "react-native-sortable-multilist",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "react-native sortable flatlist that works with multiple data arrays and headers",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,6 +17,7 @@
   "license": "MIT",
   "prepublish": "tsc",
   "dependencies": {
+    "ramda": "^0.26.1",
     "react-native-status-bar-height": "^2.4.0"
   },
   "devDependencies": {

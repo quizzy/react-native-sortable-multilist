@@ -1,4 +1,5 @@
 // imports {{{
+import { equals } from 'ramda';
 import * as React from 'react';
 import {
   Dimensions,
@@ -15,7 +16,7 @@ import {
   TapGestureHandler,
   // @ts-ignore - peer dependency
 } from 'react-native-gesture-handler';
-  // @ts-ignore - peer dependency
+// @ts-ignore - peer dependency
 import Animated, { Easing } from 'react-native-reanimated';
 import { getStatusBarHeight } from 'react-native-status-bar-height';
 // }}}
@@ -118,10 +119,9 @@ interface State {
 const getIsDataMultipleLists = (data: DataType): boolean =>
   Array.isArray(data[0]);
 
-const mapDataWithIds = (data: object[]) =>
+const mapDataWithIds = (data: MappedItemType[]) =>
   data.map((item, index) => {
     return {
-      arrayIndex: 0,
       ...item,
       draggableId: index,
     };
@@ -389,6 +389,10 @@ export class SortableMultilist extends React.Component<Props, State> {
   public componentDidUpdate(prevProps: Props) {
     if (prevProps.data !== this.props.data && this.activeItemIndex === -1) {
       const dataWithId = setUpInitialData(this.props.data);
+      if (equals(dataWithId, this.state.dataWithId)) {
+        return;
+      }
+
       const isDataMultipleLists = getIsDataMultipleLists(this.props.data);
       this.setState({ dataWithId, isDataMultipleLists });
     }
@@ -495,7 +499,7 @@ export class SortableMultilist extends React.Component<Props, State> {
       ? await Promise.all(headerHeightResolves)
       : [0];
 
-    if (JSON.stringify(updatedItemHeights) !== JSON.stringify(itemHeights)) {
+    if (!equals(updatedItemHeights, itemHeights)) {
       const largestItemHeight = updatedItemHeights.reduce(
         (final, current) => (current > final ? current : final),
         0,
@@ -518,8 +522,10 @@ export class SortableMultilist extends React.Component<Props, State> {
         // @ts-ignore // AnimatedNode lint error - unexpected number
         flatListOffsetTop + itemBoundaryOffset + statusBarHeight,
       );
-      // @ts-ignore // AnimatedNode lint error - unexpected number
-      this.containerOffsetTopValue.setValue(flatListOffsetTop + statusBarHeight);
+      this.containerOffsetTopValue.setValue(
+        // @ts-ignore // AnimatedNode lint error - unexpected number
+        flatListOffsetTop + statusBarHeight,
+      );
 
       this.itemHeightValues.forEach((itemHeightValue, index) => {
         const itemHeight =
@@ -1466,6 +1472,7 @@ export class SortableMultilist extends React.Component<Props, State> {
                     onContentSizeChange={this.setScrollLowerBound}
                     // This seems to be defaulted as true on android!!
                     removeClippedSubviews={false}
+                    scrollEventThrottle={16}
                   />
                 </Animated.View>
               </PanGestureHandler>
