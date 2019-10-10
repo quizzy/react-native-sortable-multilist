@@ -1,21 +1,31 @@
 {
   "name": "react-native-sortable-multilist",
-  "version": "0.1.1",
-  "description": "react-native sortable flatlist that works with multiple data arrays and headers",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "version": "1.0.0",
+  "description": "react-native sortable flatlist that works with multiple data arrays and headers - uses react-native-gesture-handler and react-native-reanimated",
+  "homepage": "https://github.com/quizzy/react-native-sortable-multilist#reademe",
   "keywords": [
     "rect-native",
     "sortable",
     "drag and drop",
-    "flatlist"
+    "flatlist",
+    "react-native-gesture-handler",
+    "react-native-reanimated"
   ],
   "author": "quizzy (https://github.com/quizzy/)",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/quizzy/react-native-sortable-multilist"
+  },
+  "bugs": {
+    "url": "https://github.com/quizzy/react-native-sortable-multilist/issues" 
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "prepublish": "tsc",
+  "files": [
+    "dist/"
+  ],
   "dependencies": {
     "ramda": "^0.26.1",
     "react-native-status-bar-height": "^2.4.0"

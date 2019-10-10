@@ -95,13 +95,20 @@ interface Props {
   data: DataType;
   renderItem: RenderItem | RenderItem[];
   keyExtractor: (item: object, index: number) => string;
-  renderHeader: RenderHeader | RenderHeader[];
-  onDragEnd: (list: DataType) => void;
+  renderHeader?: RenderHeader | RenderHeader[];
+  updateListOnDragEnd?: (list: DataType) => void;
+  disableUpdateListDebounce?: boolean;
+  updateListDebounceDuration?: number;
+  ref?: React.Ref<any>;
+  disableAutoUpdate?: boolean;
 }
 
 interface MappedItemType {
   arrayIndex: number;
   draggableId: number;
+  draggableIdValue: Animated.Value<number>;
+  itemTranslateY: Animated.Value<number>;
+  itemKey: number;
 }
 
 interface State {
@@ -119,14 +126,6 @@ interface State {
 const getIsDataMultipleLists = (data: DataType): boolean =>
   Array.isArray(data[0]);
 
-const mapDataWithIds = (data: MappedItemType[]) =>
-  data.map((item, index) => {
-    return {
-      ...item,
-      draggableId: index,
-    };
-  });
-
 const setUpInitialData = (data: DataType): MappedItemType[] => {
   const isDataMultipleLists = getIsDataMultipleLists(data);
 
@@ -136,8 +135,11 @@ const setUpInitialData = (data: DataType): MappedItemType[] => {
         ...acc,
         ...arr.map((item, itemIndex) => ({
           ...item,
-          draggableId: acc.length + itemIndex,
           arrayIndex,
+          draggableId: acc.length + itemIndex,
+          draggableIdValue: new Value(acc.length + itemIndex),
+          itemTranslateY: new Value(0),
+          itemKey: acc.length + itemIndex,
         })),
       ];
     }, []);
@@ -149,7 +151,10 @@ const setUpInitialData = (data: DataType): MappedItemType[] => {
     return {
       ...item,
       draggableId: index,
+      draggableIdValue: new Value(index),
       arrayIndex: 0,
+      itemTranslateY: new Value(0),
+      itemKey: index,
     };
   });
   return dataWithId;
@@ -185,6 +190,14 @@ export class SortableMultilist extends React.Component<Props, State> {
     dataWithId: setUpInitialData(this.props.data),
     isDataMultipleLists: getIsDataMultipleLists(this.props.data),
     largestItemHeight: 0,
+  };
+  // }}}
+
+  // {{{defaultProps
+  public static defaultProps = {
+    disableUpdateListDebounce: false,
+    updateListDebounceDuration: 3000,
+    disableAutoUpdate: false,
   };
   // }}}
 
@@ -295,31 +308,74 @@ export class SortableMultilist extends React.Component<Props, State> {
     this.isSavingValue.setValue(0);
   }
 
-  public onDragEnd = () => {
-    const { onDragEnd, data } = this.props;
+  // Called externally from parent using ref
+  public getListForSaving = () => {
+    const { data } = this.props;
+    const { isDataMultipleLists } = this.state;
 
-    if (!onDragEnd) {
-      return;
-    }
-
-    const { dataWithId, isDataMultipleLists } = this.state;
     const dataToSave = isDataMultipleLists
       ? (data as object[][]).map((list, index) => {
-          const updatedList = dataWithId
+          const updatedList = this.dataWithProps
             .filter((item) => item.arrayIndex === index)
             .map((item) => {
-              const { arrayIndex, draggableId, ...cleansedItem } = item;
+              const {
+                arrayIndex,
+                draggableId,
+                itemKey,
+                itemTranslateY,
+                draggableIdValue,
+                ...cleansedItem
+              } = item;
               return cleansedItem;
             });
           return updatedList;
         })
-      : dataWithId.reduce((final, item) => {
-          const { arrayIndex, draggableId, ...cleansedItem } = item;
+      : this.dataWithProps.reduce((final, item) => {
+          const {
+            arrayIndex,
+            draggableId,
+            itemKey,
+            itemTranslateY,
+            draggableIdValue,
+            ...cleansedItem
+          } = item;
           return [...final, cleansedItem];
         }, []);
 
-    onDragEnd(dataToSave);
+    return dataToSave;
   }
+
+  public updateListOnDragEnd = () => {
+    const {
+      data,
+      updateListOnDragEnd,
+      updateListDebounceDuration,
+      disableUpdateListDebounce,
+      disableAutoUpdate,
+    } = this.props;
+
+    const dataToSave = this.getListForSaving();
+    this.dataToSave = dataToSave;
+
+    if (
+      equals(data, this.dataToSave) ||
+      disableAutoUpdate ||
+      !updateListOnDragEnd
+    ) {
+      return;
+    }
+
+    if (disableUpdateListDebounce) {
+      updateListOnDragEnd(dataToSave);
+      return;
+    }
+
+    clearTimeout(this.updateListTimeout);
+    this.updateListTimeout = setTimeout(() => {
+      updateListOnDragEnd(dataToSave);
+    }, updateListDebounceDuration);
+  }
+
   // }}}
 
   // class vars {{{
@@ -336,6 +392,11 @@ export class SortableMultilist extends React.Component<Props, State> {
   public activeHoverZones = this.mapActiveHoverZones(this.firstItemIds);
   public autoScrollResolve: (params: number[]) => void;
 
+  public updateListTimeout = null;
+  public dataWithProps = this.state.dataWithId;
+  public dataToSave = this.props.data;
+
+  public initialSetupFinished = 0;
   public activeItemIndex = -1;
   public activeItemArrayIndex = -1;
   public activeHoverIndex = -1;
@@ -343,20 +404,20 @@ export class SortableMultilist extends React.Component<Props, State> {
   public scrollEnabled = true;
   public manualTriggerIndex = -1;
 
+  public initialSetUpFinishedValue = new Value(0);
   public isSavingValue = new Value(0);
   public manualTriggerValue = new Value(-1);
   public longPressStateValue = new Value(0);
   public tapStateValue = new Value(0);
   public gestureStateValue = new Value(0);
+  public gestureOldStateValue = new Value(0);
   public containerHeightValue = new Value(0);
   public containerOffsetTopValue = new Value(0);
   public containerLowerBoundValue = new Value(0);
   public containerUpperBoundValue = new Value(0);
   public contentTotalHeightValue = new Value(0);
   public hiddenContentHeightValue = new Value(0);
-  public longPressActivatedYValue = new Value(0);
-  public gestureAbsoluteYValue = new Value(0);
-  public translateYValue = new Value(0);
+  public pointerY = new Value(0);
   public scrollTopValue = new Value(0);
   public scrollTopLowerBoundValue = new Value(0);
   public autoScrollTargetValue = new Value(0);
@@ -379,21 +440,20 @@ export class SortableMultilist extends React.Component<Props, State> {
     ? (this.props.data as object[][]).map(() => new Value(0))
     : [new Value(0), new Value(1)];
 
-  public activeItemHeightValue = interpolate(this.activeItemArrayIndexValue, {
-    inputRange: this.itemArrayIds,
-    outputRange: this.itemHeightValues,
-  });
   // }}}
 
   // componentDidUpdate {{{
   public componentDidUpdate(prevProps: Props) {
     if (prevProps.data !== this.props.data && this.activeItemIndex === -1) {
-      const dataWithId = setUpInitialData(this.props.data);
-      if (equals(dataWithId, this.state.dataWithId)) {
+      if (equals(this.props.data, this.dataToSave)) {
         return;
       }
 
+      // only setState if the data is different
       const isDataMultipleLists = getIsDataMultipleLists(this.props.data);
+      const dataWithId = setUpInitialData(this.props.data);
+      this.dataWithProps = dataWithId;
+      this.dataToSave = this.props.data;
       this.setState({ dataWithId, isDataMultipleLists });
     }
   }
@@ -401,21 +461,21 @@ export class SortableMultilist extends React.Component<Props, State> {
 
   // getReorderedData {{{
   public getReorderedData = () => {
-    const { dataWithId } = this.state;
+    const { dataWithProps } = this;
 
     if (this.activeHoverIndex === -1 || this.activeHoverArrayIndex === -1) {
-      return dataWithId;
+      return dataWithProps;
     }
 
-    const { arrayIndex: activeItemArrayIndex } = dataWithId[
+    const { arrayIndex: activeItemArrayIndex } = dataWithProps[
       this.activeItemIndex
     ];
 
     if (activeItemArrayIndex !== this.activeHoverArrayIndex) {
-      return dataWithId;
+      return dataWithProps;
     }
 
-    const dataWithoutActive = dataWithId.filter(
+    const dataWithoutActive = dataWithProps.filter(
       (item) => item.draggableId !== this.activeItemIndex,
     );
 
@@ -426,11 +486,17 @@ export class SortableMultilist extends React.Component<Props, State> {
     const tail = dataWithoutActive.slice(this.activeHoverIndex);
     const updatedDataList = [
       ...head,
-      dataWithId[this.activeItemIndex],
+      dataWithProps[this.activeItemIndex],
       ...tail,
     ];
 
-    return mapDataWithIds(updatedDataList);
+    const remappedIds = updatedDataList.map((item, index) => ({
+      ...item,
+      draggableId: index,
+      draggableIdValue: new Value(index),
+    }));
+
+    return remappedIds;
   }
   // }}}
 
@@ -439,7 +505,7 @@ export class SortableMultilist extends React.Component<Props, State> {
     const {
       layout: { height },
     } = nativeEvent;
-    const { dataWithId, itemHeights, isDataMultipleLists } = this.state;
+    const { itemHeights, isDataMultipleLists } = this.state;
 
     // Measure the FlatList's offset from the top of the root view
     const flatListOffsetTop: number = await new Promise(
@@ -453,18 +519,20 @@ export class SortableMultilist extends React.Component<Props, State> {
       },
     );
 
-    const isReady = await new Promise((resolve) => {
-      const lastIndex = this.firstItemRefs.length - 1;
-      if (this.firstItemRefs[lastIndex].current) {
-        resolve(true);
+    if (this.initialSetupFinished === 0) {
+      const isReady = await new Promise((resolve) => {
+        const lastIndex = this.firstItemRefs.length - 1;
+        if (this.firstItemRefs[lastIndex].current) {
+          resolve(true);
+          return;
+        }
+        resolve(false);
+      });
+
+      if (!isReady) {
+        setTimeout(() => this.handleFlatListLayout({ nativeEvent }), 50);
         return;
       }
-      resolve(false);
-    });
-
-    if (!isReady) {
-      setTimeout(() => this.handleFlatListLayout({ nativeEvent }), 200);
-      return;
     }
 
     // Measure firstItem heights
@@ -564,7 +632,8 @@ export class SortableMultilist extends React.Component<Props, State> {
         this.itemOffsets,
         this.firstItemIds,
       );
-      const updatedItemBoundaries = dataWithId.map(boundaryMapper);
+      // const updatedItemBoundaries = dataWithId.map(boundaryMapper);
+      const updatedItemBoundaries = this.dataWithProps.map(boundaryMapper);
 
       const totalHeaderHeights = updatedHeaderHeights.reduce(
         (final, current) => final + current,
@@ -605,15 +674,23 @@ export class SortableMultilist extends React.Component<Props, State> {
       );
 
       // @ts-ignore // AnimatedNode lint error - unexpected number
-      this.lastItemIndexValue.setValue(dataWithId.length - 1);
+      this.lastItemIndexValue.setValue(this.dataWithProps.length - 1);
+      // this.lastItemIndexValue.setValue(dataWithId.length - 1);
 
-      this.setState({
-        containerHeight: height,
-        itemHeights: updatedItemHeights,
-        itemBoundaries: updatedItemBoundaries,
-        scrollSpeed: actualSpeed,
-        largestItemHeight,
-      });
+      this.setState(
+        {
+          containerHeight: height,
+          itemHeights: updatedItemHeights,
+          itemBoundaries: updatedItemBoundaries,
+          scrollSpeed: actualSpeed,
+          largestItemHeight,
+        },
+        () => {
+          this.initialSetupFinished = 1;
+          // @ts-ignore // AnimatedNode lint error - unexpected number
+          this.initialSetUpFinishedValue.setValue(1);
+        },
+      );
     }
   }
   // }}}
@@ -644,55 +721,17 @@ export class SortableMultilist extends React.Component<Props, State> {
   }
   // }}}
 
-  // checkActiveHover {{{
-  public checkActiveHoverZone = (params: number[]) => {
-    const [yPos, scrollTop, containerOffsetTop, activeItemArray] = params;
-
-    const touchY = yPos - containerOffsetTop + scrollTop;
-
-    const activeZone = this.activeHoverZones.reduce((final, bounds, index) => {
-      const { top, bottom } = bounds;
-      if (touchY > top && touchY < bottom) {
-        return index;
-      }
-
-      return final;
-    }, -1);
-
-    if (activeZone === activeItemArray) {
-      // @ts-ignore Animated setValue
-      this.activeHoverZoneValue.setValue(activeZone);
-      this.activeHoverOutOfBoundsValue.setValue(0);
-      return;
-    }
-
-    if (
-      this.activeHoverZones[activeItemArray] &&
-      touchY < this.activeHoverZones[activeItemArray].top
-    ) {
-      // @ts-ignore Animated setValue
-      this.activeHoverZoneValue.setValue(activeItemArray - 1);
-    } else {
-      // @ts-ignore Animated setValue
-      this.activeHoverZoneValue.setValue(activeItemArray + 1);
-    }
-
-    // @ts-ignore Animated setValue
-    this.activeHoverOutOfBoundsValue.setValue(1);
-  }
-  // }}}
-
   // Manual Trigger from renderedItem {{{
   public manualStartDrag = (activeItemIndex) => {
     // @ts-ignore doesn't think setNativeProps is present
     this.flatListRef.current.setNativeProps({
       scrollEnabled: false,
     });
+
     this.manualTriggerValue.setValue(activeItemIndex);
     this.manualTriggerIndex = activeItemIndex;
 
-    const { dataWithId } = this.state;
-    const { arrayIndex } = dataWithId[activeItemIndex];
+    const { arrayIndex } = this.dataWithProps[activeItemIndex];
     // @ts-ignore Animated setValue
     this.activeItemArrayIndexValue.setValue(arrayIndex);
     this.activeItemArrayIndex = arrayIndex;
@@ -701,11 +740,16 @@ export class SortableMultilist extends React.Component<Props, State> {
   public handleManualTriggerChange = (params: number[]) => {
     const [state, manualTrigger] = params;
 
-    // @ts-ignore Animated setValue
-    this.activeItemIndexValue.setValue(manualTrigger);
-    this.activeItemIndex = manualTrigger;
-
     if (state === GestureState.BEGAN) {
+      clearTimeout(this.updateListTimeout);
+      const { itemKey: itemKeyInitial } = this.state.dataWithId[manualTrigger];
+      const mappedTriggerId = this.dataWithProps.findIndex(
+        ({ itemKey }) => itemKey === itemKeyInitial,
+      );
+      // @ts-ignore Animated setValue
+      this.activeItemIndexValue.setValue(mappedTriggerId);
+      this.activeItemIndex = mappedTriggerId;
+
       this.scrollEnabled = false;
     }
   }
@@ -716,6 +760,10 @@ export class SortableMultilist extends React.Component<Props, State> {
       // @ts-ignore doesn't think setNativeProps is present
       this.flatListRef.current.setNativeProps({ scrollEnabled: true });
       this.resetClassVariables();
+      const { disableUpdateListDebounce, disableAutoUpdate } = this.props;
+      if (!disableAutoUpdate && !disableUpdateListDebounce) {
+        this.updateListOnDragEnd();
+      }
     }
   }
   // }}}
@@ -724,37 +772,34 @@ export class SortableMultilist extends React.Component<Props, State> {
   public onTapStateChange = event([
     {
       nativeEvent: ({ state, absoluteY }) =>
-        cond(eq(this.isSavingValue, 0), [
-          set(this.tapStateValue, state),
-          onChange(this.manualTriggerValue, [
-            cond(
-              and(
-                neq(this.manualTriggerValue, -1),
-                eq(state, GestureState.BEGAN),
-              ),
-              [
-                set(
-                  this.translateYValue,
-                  sub(
-                    sub(absoluteY, divide(this.activeItemHeightValue, 2)),
-                    this.containerOffsetTopValue,
+        cond(
+          and(eq(this.initialSetUpFinishedValue, 1), eq(this.isSavingValue, 0)),
+          [
+            set(this.tapStateValue, state),
+            onChange(this.manualTriggerValue, [
+              cond(
+                and(
+                  neq(this.manualTriggerValue, -1),
+                  eq(state, GestureState.BEGAN),
+                ),
+                [
+                  set(this.pointerY, absoluteY),
+                  call(
+                    [this.tapStateValue, this.manualTriggerValue],
+                    this.handleManualTriggerChange,
                   ),
-                ),
-                call(
-                  [this.tapStateValue, this.manualTriggerValue],
-                  this.handleManualTriggerChange,
-                ),
-              ],
+                ],
+              ),
+            ]),
+            onChange(
+              this.tapStateValue,
+              call(
+                [this.tapStateValue, this.manualTriggerValue],
+                this.handleTapStateChange,
+              ),
             ),
-          ]),
-          onChange(
-            this.tapStateValue,
-            call(
-              [this.tapStateValue, this.manualTriggerValue],
-              this.handleTapStateChange,
-            ),
-          ),
-        ]),
+          ],
+        ),
     },
   ]);
   // }}}
@@ -762,7 +807,6 @@ export class SortableMultilist extends React.Component<Props, State> {
   // handleLongPressActive {{{
   public handleLongPressActive = (params: number[]) => {
     const [
-      state,
       touchY,
       scrollTop,
       containerOffsetTop,
@@ -774,7 +818,7 @@ export class SortableMultilist extends React.Component<Props, State> {
       return;
     }
 
-    if (manualTrigger === -1 && state === GestureState.ACTIVE) {
+    if (manualTrigger === -1) {
       const activeItemIndex = this.calculateActiveItem(
         touchY,
         scrollTop,
@@ -785,16 +829,20 @@ export class SortableMultilist extends React.Component<Props, State> {
         return;
       }
 
+      // cancel save timeout
+      clearTimeout(this.updateListTimeout);
+
       // @ts-ignore
       this.flatListRef.current.setNativeProps({
         scrollEnabled: false,
       });
       this.scrollEnabled = false;
+
       this.activeItemIndex = activeItemIndex;
       this.activeItemIndexValue.setValue(activeItemIndex);
 
-      const { dataWithId } = this.state;
-      const { arrayIndex } = dataWithId[activeItemIndex];
+      const { arrayIndex } = this.dataWithProps[activeItemIndex];
+
       // @ts-ignore Animated setValue
       this.activeItemArrayIndexValue.setValue(arrayIndex);
       this.activeItemArrayIndex = arrayIndex;
@@ -805,64 +853,68 @@ export class SortableMultilist extends React.Component<Props, State> {
     // @ts-ignore
     this.flatListRef.current.setNativeProps({ scrollEnabled: true });
     this.resetClassVariables();
+    const { disableAutoUpdate, disableUpdateListDebounce } = this.props;
+    if (!disableAutoUpdate && !disableUpdateListDebounce) {
+      this.updateListOnDragEnd();
+    }
   }
 
   // }}}
 
   // onLongPress {{{
-  public callHandleLongPress = call(
-    [
-      this.longPressStateValue,
-      this.longPressActivatedYValue,
-      this.scrollTopValue,
-      this.containerOffsetTopValue,
-      this.manualTriggerValue,
-      this.isSavingValue,
-    ],
-    this.handleLongPressActive,
-  );
-
   public onLongPress = event([
     {
-      nativeEvent: ({ state, absoluteY }) =>
+      nativeEvent: ({ state, absoluteY, oldState }) =>
         block([
-          cond(eq(this.isSavingValue, 0), [
-            set(this.longPressStateValue, state),
-            onChange(this.longPressStateValue, [
-              cond(eq(state, GestureState.ACTIVE), [
-                set(this.longPressActivatedYValue, absoluteY),
-                cond(
-                  eq(this.manualTriggerValue, -1),
-                  set(
-                    this.translateYValue,
-                    sub(
-                      sub(absoluteY, divide(this.activeItemHeightValue, 2)),
+          cond(
+            and(
+              eq(this.initialSetUpFinishedValue, 1),
+              eq(this.isSavingValue, 0),
+            ),
+            [
+              set(this.longPressStateValue, state),
+              onChange(this.longPressStateValue, [
+                cond(eq(this.longPressStateValue, GestureState.ACTIVE), [
+                  cond(
+                    eq(this.manualTriggerValue, -1),
+                    set(this.pointerY, absoluteY),
+                  ),
+                  call(
+                    [
+                      this.pointerY,
+                      this.scrollTopValue,
                       this.containerOffsetTopValue,
+                      this.manualTriggerValue,
+                      this.isSavingValue,
+                    ],
+                    this.handleLongPressActive,
+                  ),
+                ]),
+                cond(
+                  and(
+                    neq(this.gestureStateValue, GestureState.ACTIVE),
+                    and(
+                      eq(oldState, GestureState.ACTIVE),
+                      or(
+                        eq(state, GestureState.END),
+                        eq(state, GestureState.FAILED),
+                      ),
                     ),
                   ),
+                  call([], this.handleLongPressCancelled),
                 ),
-                this.callHandleLongPress,
               ]),
-              cond(
-                and(
-                  eq(state, GestureState.END),
-                  neq(this.gestureStateValue, GestureState.ACTIVE),
-                ),
-                call([], this.handleLongPressCancelled),
-              ),
-            ]),
-          ]),
+            ],
+          ),
         ]),
     },
   ]);
   // }}}
 
-  //// #### scrollMethods {{{
+  //// scrollMethods {{{
   public setScrollLowerBound = (contentWidth, contentHeight) => {
     const scrollDiff =
-      contentHeight -
-      this.state.containerHeight +
-      this.state.largestItemHeight * 1.5;
+      contentHeight - this.state.containerHeight + this.state.largestItemHeight;
 
     // TODO this value doesn't seem to be the correct scrollEnd
     // @ts-ignore Animated setValue
@@ -985,9 +1037,11 @@ export class SortableMultilist extends React.Component<Props, State> {
   }
   // }}}
 
-  // trackActiveHover {{{
-  public trackActiveHover = (params: number[]) => {
-    const [yPos, scrollTop, containerOffsetTop] = params;
+  // trackHover {{{
+  public trackHover = (params: number[]) => {
+    const [yPos, scrollTop, containerOffsetTop, activeItemArray] = params;
+
+    // trackActiveHover
     const currentActiveHoverIndex = this.calculateActiveItem(
       yPos,
       scrollTop,
@@ -1001,12 +1055,70 @@ export class SortableMultilist extends React.Component<Props, State> {
       this.activeHoverIndex = currentActiveHoverIndex;
       this.activeHoverIndexValue.setValue(currentActiveHoverIndex);
 
-      const { dataWithId } = this.state;
-      const { arrayIndex } = dataWithId[currentActiveHoverIndex];
+      // const { dataWithId } = this.state;
+      // const { arrayIndex } = dataWithId[currentActiveHoverIndex];
+      const { arrayIndex } = this.dataWithProps[currentActiveHoverIndex];
       // @ts-ignore AnimatedValue number
       this.activeHoverArrayIndexValue.setValue(arrayIndex);
       this.activeHoverArrayIndex = arrayIndex;
     }
+
+    // track hoverZone
+    const touchY = yPos - containerOffsetTop + scrollTop;
+    const activeZone = this.activeHoverZones.reduce((final, bounds, index) => {
+      const { top, bottom } = bounds;
+      if (touchY > top && touchY < bottom) {
+        return index;
+      }
+
+      return final;
+    }, -1);
+
+    if (activeZone === activeItemArray) {
+      // @ts-ignore Animated setValue
+      this.activeHoverZoneValue.setValue(activeZone);
+      this.activeHoverOutOfBoundsValue.setValue(0);
+      return;
+    }
+
+    if (
+      this.activeHoverZones[activeItemArray] &&
+      touchY < this.activeHoverZones[activeItemArray].top
+    ) {
+      // @ts-ignore Animated setValue
+      this.activeHoverZoneValue.setValue(activeItemArray - 1);
+    } else {
+      // @ts-ignore Animated setValue
+      this.activeHoverZoneValue.setValue(activeItemArray + 1);
+    }
+
+    // @ts-ignore Animated setValue
+    this.activeHoverOutOfBoundsValue.setValue(1);
+  }
+  // }}}
+
+  // {{{ Align itemTranslateY
+  public updateAllItemY = (updatedDataList) => {
+    this.state.dataWithId.forEach(
+      ({
+        draggableId: initialDraggableId,
+        draggableIdValue,
+        itemKey: itemKeyState,
+      }) => {
+        const {
+          draggableId,
+          arrayIndex,
+          itemTranslateY,
+        } = updatedDataList.find(({ itemKey }) => itemKey === itemKeyState);
+        draggableIdValue.setValue(draggableId);
+        // set the updated item position
+        const itemHeight = this.state.itemHeights[arrayIndex];
+        const diff = draggableId - initialDraggableId;
+        const newY = diff * itemHeight;
+
+        itemTranslateY.setValue(newY);
+      },
+    );
   }
   // }}}
 
@@ -1033,57 +1145,53 @@ export class SortableMultilist extends React.Component<Props, State> {
     }
 
     const updatedDataList = this.getReorderedData();
+    this.updateAllItemY(updatedDataList);
     // @ts-ignore
     this.flatListRef.current.setNativeProps({ scrollEnabled: true });
-    this.setState(
-      {
-        dataWithId: updatedDataList,
-      },
-      () => {
-        this.resetClassVariables();
-        this.onDragEnd();
-      },
-    );
+    this.dataWithProps = updatedDataList;
+    this.resetClassVariables();
+
+    const { disableAutoUpdate, updateListOnDragEnd } = this.props;
+    if (!disableAutoUpdate && updateListOnDragEnd) {
+      this.updateListOnDragEnd();
+    }
   }
 
   public onGestureEvent = event([
     {
-      nativeEvent: ({ state, absoluteY }) =>
-        cond(eq(this.isSavingValue, 0), [
-          set(this.gestureStateValue, state),
-          onChange(this.gestureStateValue, [
-            cond(eq(state, GestureState.END), [
-              set(this.isSavingValue, 1),
-              call([this.activeItemIndexValue], this.handleSave),
-            ]),
-          ]),
-          cond(
-            and(
-              and(
-                eq(this.isSavingValue, 0),
-                eq(this.gestureStateValue, GestureState.ACTIVE),
-              ),
-              or(
-                neq(this.manualTriggerValue, -1),
-                eq(this.longPressStateValue, GestureState.ACTIVE),
-              ),
-            ),
-            [
-              // Track if touchY is out of bounds
+      nativeEvent: ({ state, oldState, absoluteY }) =>
+        block([
+          cond(eq(this.isSavingValue, 0), [
+            set(this.gestureStateValue, state),
+            set(this.gestureOldStateValue, oldState),
+            onChange(this.gestureStateValue, [
               cond(
-                or(
-                  lessThan(absoluteY, this.containerOffsetTopValue),
-                  greaterThan(
-                    absoluteY,
-                    add(this.containerOffsetTopValue, this.containerHeightValue),
-                  ),
-                ),
+                or(eq(state, GestureState.FAILED), eq(state, GestureState.END)),
                 [
-                  cond(lessThan(absoluteY, this.containerOffsetTopValue), [
-                    set(this.touchOutOfBoundsValue, 1),
-                    set(this.touchOutOfBoundsTopValue, 1),
-                  ]),
-                  cond(
+                  set(this.isSavingValue, 1),
+                  call([this.activeItemIndexValue], this.handleSave),
+                ],
+              ),
+            ]),
+            cond(
+              and(
+                and(
+                  and(
+                    eq(this.initialSetUpFinishedValue, 1),
+                    eq(this.isSavingValue, 0),
+                  ),
+                  eq(state, GestureState.ACTIVE),
+                ),
+                or(
+                  neq(this.manualTriggerValue, -1),
+                  eq(this.longPressStateValue, GestureState.ACTIVE),
+                ),
+              ),
+              [
+                // {{{ Track if touchY is out of bounds
+                cond(
+                  or(
+                    lessThan(absoluteY, this.containerOffsetTopValue),
                     greaterThan(
                       absoluteY,
                       add(
@@ -1091,118 +1199,130 @@ export class SortableMultilist extends React.Component<Props, State> {
                         this.containerHeightValue,
                       ),
                     ),
-                    [
+                  ),
+                  [
+                    cond(lessThan(absoluteY, this.containerOffsetTopValue), [
                       set(this.touchOutOfBoundsValue, 1),
-                      set(this.touchOutOfBoundsBottomValue, 1),
+                      set(this.touchOutOfBoundsTopValue, 1),
+                    ]),
+                    cond(
+                      greaterThan(
+                        absoluteY,
+                        add(
+                          this.containerOffsetTopValue,
+                          this.containerHeightValue,
+                        ),
+                      ),
+                      [
+                        set(this.touchOutOfBoundsValue, 1),
+                        set(this.touchOutOfBoundsBottomValue, 1),
+                      ],
+                    ),
+                  ],
+                  [
+                    set(this.touchOutOfBoundsValue, 0),
+                    set(this.touchOutOfBoundsTopValue, 0),
+                    set(this.touchOutOfBoundsBottomValue, 0),
+                  ],
+                ),
+                // }}}
+                cond(eq(this.touchOutOfBoundsValue, 0), [
+                  // Track translateYValue for active block translationY
+                  set(this.pointerY, absoluteY),
+                  // Track currently hovered item
+                  call(
+                    [
+                      this.pointerY,
+                      this.scrollTopValue,
+                      this.containerOffsetTopValue,
+                      this.activeItemArrayIndexValue,
                     ],
+                    this.trackHover,
                   ),
-                ],
-                [
-                  set(this.touchOutOfBoundsValue, 0),
-                  set(this.touchOutOfBoundsTopValue, 0),
-                  set(this.touchOutOfBoundsBottomValue, 0),
-                ],
-              ),
-              cond(eq(this.touchOutOfBoundsValue, 0), [
-                // Track translateYValue for active block translationY
-                set(
-                  this.translateYValue,
-                  sub(
-                    sub(absoluteY, divide(this.activeItemHeightValue, 2)),
-                    this.containerOffsetTopValue,
-                  ),
-                ),
-                // Track currently hovered item
-                set(this.gestureAbsoluteYValue, absoluteY),
-                call(
-                  [
-                    this.gestureAbsoluteYValue,
-                    this.scrollTopValue,
-                    this.containerOffsetTopValue,
-                  ],
-                  this.trackActiveHover,
-                ),
-                call(
-                  [
-                    this.gestureAbsoluteYValue,
-                    this.scrollTopValue,
-                    this.containerOffsetTopValue,
-                    this.activeItemArrayIndexValue,
-                  ],
-                  this.checkActiveHoverZone,
-                ),
-                // With lowerBound Active Zone
-                // {{{
-                cond(
-                  and(
-                    eq(this.hasAutoScrollStartedValue, 0),
+                  // With lowerBound Active Zone
+                  // {{{
+                  cond(
                     and(
-                      greaterThan(absoluteY, this.containerLowerBoundValue),
-                      lessThan(
-                        this.scrollTopValue,
-                        this.scrollTopLowerBoundValue,
+                      eq(this.hasAutoScrollStartedValue, 0),
+                      and(
+                        greaterThan(absoluteY, this.containerLowerBoundValue),
+                        lessThan(
+                          this.scrollTopValue,
+                          this.scrollTopLowerBoundValue,
+                        ),
                       ),
                     ),
+                    [
+                      set(this.hasAutoScrollStartedValue, 1),
+                      set(this.isAutoScrollDownValue, 1),
+                      this.callAutoScroll,
+                    ],
                   ),
-                  [
-                    set(this.hasAutoScrollStartedValue, 1),
-                    set(this.isAutoScrollDownValue, 1),
-                    this.callAutoScroll,
-                  ],
-                ),
-                // }}}
-                // upperBound active zone
-                // {{{
-                cond(
-                  and(
-                    eq(this.hasAutoScrollStartedValue, 0),
+                  // }}}
+                  // upperBound active zone
+                  // {{{
+                  cond(
                     and(
-                      lessThan(absoluteY, this.containerUpperBoundValue),
-                      greaterThan(this.scrollTopValue, 0),
+                      eq(this.hasAutoScrollStartedValue, 0),
+                      and(
+                        lessThan(absoluteY, this.containerUpperBoundValue),
+                        greaterThan(this.scrollTopValue, 0),
+                      ),
                     ),
+                    [
+                      set(this.hasAutoScrollStartedValue, 1),
+                      set(this.isAutoScrollUpValue, 1),
+                      this.callAutoScroll,
+                    ],
                   ),
-                  [
-                    set(this.hasAutoScrollStartedValue, 1),
-                    set(this.isAutoScrollUpValue, 1),
-                    this.callAutoScroll,
-                  ],
-                ),
-                // }}}
-                // Out of lowerbound zone - reset hasAutoScrollStartedValue
-                // {{{
-                cond(
-                  and(
-                    eq(this.isAutoScrollDownValue, 1),
-                    lessThan(absoluteY, this.containerLowerBoundValue),
+                  // }}}
+                  // Out of lowerbound zone - reset hasAutoScrollStartedValue
+                  // {{{
+                  cond(
+                    and(
+                      eq(this.isAutoScrollDownValue, 1),
+                      lessThan(absoluteY, this.containerLowerBoundValue),
+                    ),
+                    [
+                      set(this.hasAutoScrollStartedValue, 0),
+                      set(this.isAutoScrollDownValue, 0),
+                    ],
                   ),
-                  [
-                    set(this.hasAutoScrollStartedValue, 0),
-                    set(this.isAutoScrollDownValue, 0),
-                  ],
-                ),
-                // out of upperbound
-                cond(
-                  and(
-                    eq(this.isAutoScrollUpValue, 1),
-                    greaterThan(absoluteY, this.containerUpperBoundValue),
+                  // out of upperbound
+                  cond(
+                    and(
+                      eq(this.isAutoScrollUpValue, 1),
+                      greaterThan(absoluteY, this.containerUpperBoundValue),
+                    ),
+                    [
+                      set(this.hasAutoScrollStartedValue, 0),
+                      set(this.isAutoScrollUpValue, 0),
+                    ],
                   ),
-                  [
-                    set(this.hasAutoScrollStartedValue, 0),
-                    set(this.isAutoScrollUpValue, 0),
-                  ],
-                ),
-                // }}}
-              ]),
-            ],
-          ),
+                  // }}}
+                ]),
+              ],
+            ),
+          ]),
         ]),
     },
   ]);
   // }}}
 
   // run timing {{{
-  public runTiming = (clock, currentValue, dest, idValue, arrayIndex) => {
-    const { activeItemIndexValue, activeItemArrayIndexValue } = this;
+  public runTiming = (
+    clock,
+    startingPosition,
+    dest,
+    idValue,
+    arrayIndex,
+    activeItemFinalTarget,
+  ) => {
+    const {
+      activeItemIndexValue,
+      activeItemArrayIndexValue,
+      isSavingValue,
+    } = this;
 
     const state = {
       finished: new Value(0),
@@ -1218,58 +1338,216 @@ export class SortableMultilist extends React.Component<Props, State> {
     };
 
     return block([
-      cond(eq(idValue, activeItemIndexValue), dest, [
-        cond(neq(arrayIndex, activeItemArrayIndexValue), 0, [
-          cond(
-            clockRunning(clock),
-            [set(config.toValue, dest)],
-            [
-              set(state.finished, 0),
-              set(state.time, 0),
-              set(state.position, currentValue),
-              set(state.frameTime, 0),
-              set(config.toValue, dest),
-              startClock(clock),
-            ],
-          ),
-          timing(clock, state, config),
-          // currentValue is passed in and mutated - slightly hacky, but no better solution at present
-          cond(state.finished, [
-            stopClock(clock),
-            set(currentValue, state.position),
-          ]),
-          state.position,
-        ]),
-      ]),
+      cond(
+        eq(activeItemIndexValue, -1),
+        [dest],
+        cond(
+          eq(idValue, activeItemIndexValue),
+          // startingPosition is passed in and mutated - slightly hacky, but no better solution at present
+          [
+            cond(
+              eq(isSavingValue, 1),
+              [
+                set(startingPosition, activeItemFinalTarget),
+                activeItemFinalTarget,
+              ],
+              dest,
+            ),
+          ],
+          [
+            cond(neq(arrayIndex, activeItemArrayIndexValue), startingPosition, [
+              cond(
+                clockRunning(clock),
+                [set(config.toValue, dest)],
+                cond(neq(state.position, dest), [
+                  set(state.finished, 0),
+                  set(state.time, 0),
+                  set(state.position, startingPosition),
+                  set(state.frameTime, 0),
+                  set(config.toValue, dest),
+                  startClock(clock),
+                ]),
+              ),
+              timing(clock, state, config),
+              cond(state.finished, [stopClock(clock)]),
+              cond(eq(isSavingValue, 1), set(startingPosition, dest)),
+              state.position,
+            ]),
+          ],
+        ),
+      ),
     ]);
+  }
+  // }}}
+
+  // {{{ getItemTranslateY
+  public getItemTranslateY = (
+    draggableId: number,
+    arrayIndex: number,
+    itemTranslateY: Animated.Value<number>,
+  ) => {
+    const {
+      activeItemIndexValue,
+      activeItemArrayIndexValue,
+      activeHoverIndexValue,
+      itemHeightValues,
+      hiddenContentHeightValue,
+      firstItemIds,
+      lastItemIds,
+      itemArrayIds,
+      itemOffsets,
+      pointerY,
+      scrollTopValue,
+      touchOutOfBoundsValue,
+      touchOutOfBoundsTopValue,
+      activeHoverOutOfBoundsValue,
+      activeHoverZoneValue,
+      containerOffsetTopValue,
+    } = this;
+
+    const clock = new Clock();
+
+    const itemHeight = interpolate(activeItemArrayIndexValue, {
+      inputRange: itemArrayIds,
+      outputRange: itemHeightValues,
+    });
+    const itemOffset = itemOffsets[arrayIndex];
+    const firstItemId = interpolate(activeItemArrayIndexValue, {
+      inputRange: itemArrayIds,
+      outputRange: firstItemIds,
+    });
+
+    const activeItemRelativeY = multiply(
+      itemHeight,
+      sub(draggableId, firstItemId),
+    );
+    const activeItemOffset = add(itemOffset, activeItemRelativeY);
+
+    const hoverBelowOffset = add(multiply(itemHeight, -1), itemTranslateY);
+    const hoverAboveOffset = add(itemHeight, itemTranslateY);
+
+    const outOfBoundTopPosition = multiply(
+      sub(firstItemId, draggableId),
+      itemHeight,
+    );
+    const lastItemId = interpolate(this.activeItemArrayIndexValue, {
+      inputRange: itemArrayIds,
+      outputRange: lastItemIds,
+    });
+    const outOfBoundBottomPosition = multiply(
+      sub(lastItemId, draggableId),
+      itemHeight,
+    );
+
+    const targetTranslateY = cond(
+      eq(activeItemIndexValue, -1),
+      // No active item resume cached position
+      itemTranslateY,
+      [
+        cond(
+          eq(draggableId, activeItemIndexValue),
+          // active Item
+          add(
+            cond(
+              or(
+                eq(touchOutOfBoundsValue, 1),
+                eq(activeHoverOutOfBoundsValue, 1),
+              ),
+              cond(
+                or(
+                  eq(touchOutOfBoundsTopValue, 1),
+                  lessThan(activeHoverZoneValue, activeItemArrayIndexValue),
+                ),
+                outOfBoundTopPosition,
+                outOfBoundBottomPosition,
+              ),
+              add(
+                sub(
+                  sub(
+                    sub(pointerY, divide(itemHeight, 2)),
+                    containerOffsetTopValue,
+                  ),
+                  activeItemOffset,
+                ),
+                multiply(
+                  divide(scrollTopValue, hiddenContentHeightValue),
+                  hiddenContentHeightValue,
+                ),
+              ),
+            ),
+            itemTranslateY,
+          ),
+          // all other items
+          cond(
+            eq(activeHoverIndexValue, -1),
+            itemTranslateY,
+            cond(
+              // all cells hovered below active need to move up one
+              and(
+                greaterThan(draggableId, activeItemIndexValue),
+                lessOrEq(draggableId, activeHoverIndexValue),
+              ),
+              hoverBelowOffset,
+              cond(
+                // all cells hovered above the active need to move down one
+                and(
+                  lessThan(draggableId, activeItemIndexValue),
+                  greaterOrEq(draggableId, activeHoverIndexValue),
+                ),
+                hoverAboveOffset,
+                // all cells unaffected should resume the current translateY
+                itemTranslateY,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    const clampedActiveHoverIndex = cond(
+      lessThan(activeHoverIndexValue, firstItemId),
+      firstItemId,
+      cond(
+        greaterThan(activeHoverIndexValue, lastItemId),
+        lastItemId,
+        activeHoverIndexValue,
+      ),
+    );
+    const activeItemFinalTarget = cond(
+      eq(activeHoverIndexValue, -1),
+      itemTranslateY,
+      add(
+        itemTranslateY,
+        multiply(itemHeight, sub(clampedActiveHoverIndex, activeItemIndexValue)),
+      ),
+    );
+
+    const translateY = this.runTiming(
+      clock,
+      itemTranslateY,
+      targetTranslateY,
+      draggableId,
+      arrayIndex,
+      activeItemFinalTarget,
+    );
+    return translateY;
   }
   // }}}
 
   // draggableRenderItem {{{
   public draggableRenderItem = (renderProps) => {
     const {
-      item: { draggableId, arrayIndex },
+      item: { draggableId, arrayIndex, itemTranslateY, draggableIdValue },
     } = renderProps;
 
     const {
       activeItemIndexValue,
-      activeItemArrayIndexValue,
-      activeHoverIndexValue,
       activeHoverArrayIndexValue,
-      itemHeightValues,
-      hiddenContentHeightValue,
       firstItemRefs,
       firstItemIds,
-      lastItemIds,
-      itemArrayIds,
-      itemOffsets,
-      translateYValue,
-      scrollTopValue,
       touchOutOfBoundsValue,
-      touchOutOfBoundsTopValue,
       activeHoverOutOfBoundsValue,
       headerRefs,
-      activeHoverZoneValue,
     } = this;
 
     const { isDataMultipleLists } = this.state;
@@ -1296,95 +1574,8 @@ export class SortableMultilist extends React.Component<Props, State> {
     const headerRef =
       isListFirstItem && headerRefs ? headerRefs[arrayIndex] : null;
 
-    const itemTranslateY = new Value(0);
-    const clock = new Clock();
-    // translateY calculations {{{
-    const itemHeight = interpolate(activeItemArrayIndexValue, {
-      inputRange: itemArrayIds,
-      outputRange: itemHeightValues,
-    });
-    const itemOffset = itemOffsets[arrayIndex];
-    const firstItemId = interpolate(activeItemArrayIndexValue, {
-      inputRange: itemArrayIds,
-      outputRange: firstItemIds,
-    });
-
-    const activeItemRelativeY = multiply(
-      itemHeight,
-      sub(draggableId, firstItemId),
-    );
-    const activeItemOffset = add(itemOffset, activeItemRelativeY);
-
-    const hoverBelowOffset = multiply(itemHeight, -1);
-    const hoverAboveOffset = itemHeight;
-
-    const outOfBoundTopPosition = multiply(
-      sub(firstItemId, draggableId),
-      itemHeight,
-    );
-    const lastItemId = interpolate(this.activeItemArrayIndexValue, {
-      inputRange: itemArrayIds,
-      outputRange: lastItemIds,
-    });
-    const outOfBoundBottomPosition = multiply(
-      sub(lastItemId, draggableId),
-      itemHeight,
-    );
-
-    const targetTranslateY = cond(
-      eq(draggableId, activeItemIndexValue),
-      cond(
-        or(eq(touchOutOfBoundsValue, 1), eq(activeHoverOutOfBoundsValue, 1)),
-        cond(
-          or(
-            eq(touchOutOfBoundsTopValue, 1),
-            lessThan(activeHoverZoneValue, activeItemArrayIndexValue),
-          ),
-          outOfBoundTopPosition,
-          outOfBoundBottomPosition,
-        ),
-        add(
-          sub(translateYValue, activeItemOffset),
-          multiply(
-            divide(scrollTopValue, hiddenContentHeightValue),
-            hiddenContentHeightValue,
-          ),
-        ),
-      ),
-      cond(
-        // all cells hovered below active need to move up one
-        and(
-          greaterThan(draggableId, activeItemIndexValue),
-          lessOrEq(draggableId, activeHoverIndexValue),
-        ),
-        hoverBelowOffset,
-        // all cells hovered above the active need to move down one
-        cond(
-          and(
-            lessThan(draggableId, activeItemIndexValue),
-            and(
-              greaterThan(activeHoverIndexValue, -1),
-              greaterOrEq(draggableId, activeHoverIndexValue),
-            ),
-          ),
-          hoverAboveOffset,
-          0,
-        ),
-      ),
-    );
-
-    const translateY = this.runTiming(
-      clock,
-      itemTranslateY,
-      targetTranslateY,
-      draggableId,
-      arrayIndex,
-    );
-    // }}}
-
-    // opacity {{{
     const opacity = cond(
-      neq(draggableId, activeItemIndexValue),
+      neq(draggableIdValue, activeItemIndexValue),
       1,
       cond(
         or(
@@ -1398,8 +1589,12 @@ export class SortableMultilist extends React.Component<Props, State> {
         1,
       ),
     );
-    // }}}
 
+    const translateY = this.getItemTranslateY(
+      draggableIdValue,
+      arrayIndex,
+      itemTranslateY,
+    );
     const style = {
       transform: [{ translateY }],
       opacity,
