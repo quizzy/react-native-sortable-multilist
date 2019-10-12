@@ -90,6 +90,10 @@ interface ItemBoundaries {
   bottom: number;
 }
 type RenderHeader = () => JSX.Element;
+interface RightDragAreaOffsets {
+  width: number;
+  marginRight?: number;
+}
 
 interface Props {
   data: DataType;
@@ -101,6 +105,9 @@ interface Props {
   updateListDebounceDuration?: number;
   ref?: React.Ref<any>;
   disableAutoUpdate?: boolean;
+  disableLongPress?: boolean;
+  enableRightDragArea?: boolean;
+  rightDragAreaOffsets?: RightDragAreaOffsets;
 }
 
 interface MappedItemType {
@@ -113,6 +120,8 @@ interface MappedItemType {
 
 interface State {
   containerHeight: number;
+  containerWidth: number;
+  containerOffsetLeft: number;
   itemHeights: number[];
   itemBoundaries: ItemBoundaries[];
   scrollSpeed: number;
@@ -184,6 +193,8 @@ export class SortableMultilist extends React.Component<Props, State> {
   // State {{{
   public state = {
     containerHeight: 0,
+    containerWidth: 0,
+    containerOffsetLeft: 0,
     itemHeights: [0],
     itemBoundaries: [],
     scrollSpeed: 0,
@@ -198,6 +209,8 @@ export class SortableMultilist extends React.Component<Props, State> {
     disableUpdateListDebounce: false,
     updateListDebounceDuration: 3000,
     disableAutoUpdate: false,
+    enableRightDragArea: false,
+    disableLongPress: false,
   };
   // }}}
 
@@ -298,8 +311,6 @@ export class SortableMultilist extends React.Component<Props, State> {
     this.activeHoverIndexValue.setValue(-1);
     this.activeHoverArrayIndexValue.setValue(-1);
     this.activeHoverArrayIndex = -1;
-    this.manualTriggerValue.setValue(-1);
-    this.manualTriggerIndex = -1;
     this.activeHoverOutOfBoundsValue.setValue(0);
     this.activeHoverZoneValue.setValue(-1);
     this.touchOutOfBoundsValue.setValue(0);
@@ -402,11 +413,9 @@ export class SortableMultilist extends React.Component<Props, State> {
   public activeHoverIndex = -1;
   public activeHoverArrayIndex = -1;
   public scrollEnabled = true;
-  public manualTriggerIndex = -1;
 
   public initialSetUpFinishedValue = new Value(0);
   public isSavingValue = new Value(0);
-  public manualTriggerValue = new Value(-1);
   public longPressStateValue = new Value(0);
   public tapStateValue = new Value(0);
   public gestureStateValue = new Value(0);
@@ -418,6 +427,7 @@ export class SortableMultilist extends React.Component<Props, State> {
   public contentTotalHeightValue = new Value(0);
   public hiddenContentHeightValue = new Value(0);
   public pointerY = new Value(0);
+  public pointerX = new Value(0);
   public scrollTopValue = new Value(0);
   public scrollTopLowerBoundValue = new Value(0);
   public autoScrollTargetValue = new Value(0);
@@ -503,21 +513,22 @@ export class SortableMultilist extends React.Component<Props, State> {
   // Flatlist onLayout {{{
   public handleFlatListLayout = async ({ nativeEvent }) => {
     const {
-      layout: { height },
+      layout: { height, width },
     } = nativeEvent;
     const { itemHeights, isDataMultipleLists } = this.state;
 
     // Measure the FlatList's offset from the top of the root view
-    const flatListOffsetTop: number = await new Promise(
+    const flatListOffset: [number, number] = await new Promise(
       async (resolve, reject) => {
         await UIManager.measure(
           findNodeHandle(this.flatListRef.current),
           async (x, y, w, h, px, py) => {
-            resolve(py);
+            resolve([px, py]);
           },
         );
       },
     );
+    const [flatListOffsetLeft, flatListOffsetTop] = flatListOffset;
 
     if (this.initialSetupFinished === 0) {
       const isReady = await new Promise((resolve) => {
@@ -680,6 +691,8 @@ export class SortableMultilist extends React.Component<Props, State> {
       this.setState(
         {
           containerHeight: height,
+          containerWidth: width,
+          containerOffsetLeft: flatListOffsetLeft,
           itemHeights: updatedItemHeights,
           itemBoundaries: updatedItemBoundaries,
           scrollSpeed: actualSpeed,
@@ -721,42 +734,59 @@ export class SortableMultilist extends React.Component<Props, State> {
   }
   // }}}
 
-  // Manual Trigger from renderedItem {{{
-  public manualStartDrag = (activeItemIndex) => {
-    // @ts-ignore doesn't think setNativeProps is present
-    this.flatListRef.current.setNativeProps({
-      scrollEnabled: false,
-    });
-
-    this.manualTriggerValue.setValue(activeItemIndex);
-    this.manualTriggerIndex = activeItemIndex;
-
-    const { arrayIndex } = this.dataWithProps[activeItemIndex];
-    // @ts-ignore Animated setValue
-    this.activeItemArrayIndexValue.setValue(arrayIndex);
-    this.activeItemArrayIndex = arrayIndex;
-  }
-
-  public handleManualTriggerChange = (params: number[]) => {
-    const [state, manualTrigger] = params;
-
-    if (state === GestureState.BEGAN) {
-      clearTimeout(this.updateListTimeout);
-      const { itemKey: itemKeyInitial } = this.state.dataWithId[manualTrigger];
-      const mappedTriggerId = this.dataWithProps.findIndex(
-        ({ itemKey }) => itemKey === itemKeyInitial,
-      );
-      // @ts-ignore Animated setValue
-      this.activeItemIndexValue.setValue(mappedTriggerId);
-      this.activeItemIndex = mappedTriggerId;
-
-      this.scrollEnabled = false;
-    }
-  }
-
+  // handleTapStateChange {{{
   public handleTapStateChange = (params: number[]) => {
-    const [state, manualTrigger] = params;
-    if (state === GestureState.END && manualTrigger > -1) {
+    const [
+      state,
+      gestureState,
+      absoluteY,
+      absoluteX,
+      scrollTop,
+      containerOffsetTop,
+    ] = params;
+    const { enableRightDragArea, rightDragAreaOffsets } = this.props;
+
+    if (state === GestureState.BEGAN && enableRightDragArea) {
+      const { containerWidth, containerOffsetLeft } = this.state;
+      const { width = 0, marginRight = 0 } = rightDragAreaOffsets || {};
+      const activeAreaCoef = 0.2; // fifth
+      const activeArea = rightDragAreaOffsets
+        ? width + marginRight
+        : containerWidth * activeAreaCoef;
+      const activeAreaLeftBoundary =
+        containerOffsetLeft + containerWidth - activeArea;
+      const activeAreaRightBoundary =
+        containerOffsetLeft + containerWidth - marginRight;
+
+      if (
+        absoluteX > activeAreaLeftBoundary &&
+        absoluteX < activeAreaRightBoundary
+      ) {
+        const activeItemIndex = this.calculateActiveItem(
+          absoluteY,
+          scrollTop,
+          containerOffsetTop,
+        );
+
+        if (activeItemIndex > -1) {
+          clearTimeout(this.updateListTimeout);
+          // @ts-ignore Animated setValue
+          this.activeItemIndexValue.setValue(activeItemIndex);
+          this.activeItemIndex = activeItemIndex;
+
+          // @ts-ignore doesn't think setNativeProps is present
+          this.flatListRef.current.setNativeProps({ scrollEnabled: false });
+          this.scrollEnabled = false;
+          const { arrayIndex } = this.dataWithProps[activeItemIndex];
+
+          // @ts-ignore Animated setValue
+          this.activeItemArrayIndexValue.setValue(arrayIndex);
+          this.activeItemArrayIndex = arrayIndex;
+        }
+      }
+    }
+
+    if (state === GestureState.END && gestureState !== GestureState.ACTIVE) {
       // @ts-ignore doesn't think setNativeProps is present
       this.flatListRef.current.setNativeProps({ scrollEnabled: true });
       this.resetClassVariables();
@@ -771,33 +801,28 @@ export class SortableMultilist extends React.Component<Props, State> {
   // onTapStateChange {{{
   public onTapStateChange = event([
     {
-      nativeEvent: ({ state, absoluteY }) =>
+      nativeEvent: ({ state, absoluteY, absoluteX }) =>
         cond(
           and(eq(this.initialSetUpFinishedValue, 1), eq(this.isSavingValue, 0)),
           [
             set(this.tapStateValue, state),
-            onChange(this.manualTriggerValue, [
-              cond(
-                and(
-                  neq(this.manualTriggerValue, -1),
-                  eq(state, GestureState.BEGAN),
-                ),
-                [
-                  set(this.pointerY, absoluteY),
-                  call(
-                    [this.tapStateValue, this.manualTriggerValue],
-                    this.handleManualTriggerChange,
-                  ),
-                ],
-              ),
-            ]),
-            onChange(
-              this.tapStateValue,
+            onChange(this.tapStateValue, [
+              cond(eq(state, GestureState.BEGAN), [
+                set(this.pointerY, absoluteY),
+                set(this.pointerX, absoluteX),
+              ]),
               call(
-                [this.tapStateValue, this.manualTriggerValue],
+                [
+                  this.tapStateValue,
+                  this.gestureStateValue,
+                  this.pointerY,
+                  this.pointerX,
+                  this.scrollTopValue,
+                  this.containerOffsetTopValue,
+                ],
                 this.handleTapStateChange,
               ),
-            ),
+            ]),
           ],
         ),
     },
@@ -806,47 +831,49 @@ export class SortableMultilist extends React.Component<Props, State> {
 
   // handleLongPressActive {{{
   public handleLongPressActive = (params: number[]) => {
+    if (this.props.disableLongPress) {
+      return;
+    }
+
     const [
       touchY,
       scrollTop,
       containerOffsetTop,
-      manualTrigger,
       isSaving,
+      alreadyActive,
     ] = params;
 
-    if (isSaving) {
+    if (isSaving || alreadyActive !== -1) {
       return;
     }
 
-    if (manualTrigger === -1) {
-      const activeItemIndex = this.calculateActiveItem(
-        touchY,
-        scrollTop,
-        containerOffsetTop,
-      );
+    const activeItemIndex = this.calculateActiveItem(
+      touchY,
+      scrollTop,
+      containerOffsetTop,
+    );
 
-      if (activeItemIndex === -1) {
-        return;
-      }
-
-      // cancel save timeout
-      clearTimeout(this.updateListTimeout);
-
-      // @ts-ignore
-      this.flatListRef.current.setNativeProps({
-        scrollEnabled: false,
-      });
-      this.scrollEnabled = false;
-
-      this.activeItemIndex = activeItemIndex;
-      this.activeItemIndexValue.setValue(activeItemIndex);
-
-      const { arrayIndex } = this.dataWithProps[activeItemIndex];
-
-      // @ts-ignore Animated setValue
-      this.activeItemArrayIndexValue.setValue(arrayIndex);
-      this.activeItemArrayIndex = arrayIndex;
+    if (activeItemIndex === -1) {
+      return;
     }
+
+    // cancel save timeout
+    clearTimeout(this.updateListTimeout);
+
+    // @ts-ignore
+    this.flatListRef.current.setNativeProps({
+      scrollEnabled: false,
+    });
+    this.scrollEnabled = false;
+
+    this.activeItemIndex = activeItemIndex;
+    this.activeItemIndexValue.setValue(activeItemIndex);
+
+    const { arrayIndex } = this.dataWithProps[activeItemIndex];
+
+    // @ts-ignore Animated setValue
+    this.activeItemArrayIndexValue.setValue(arrayIndex);
+    this.activeItemArrayIndex = arrayIndex;
   }
 
   public handleLongPressCancelled = () => {
@@ -875,17 +902,14 @@ export class SortableMultilist extends React.Component<Props, State> {
               set(this.longPressStateValue, state),
               onChange(this.longPressStateValue, [
                 cond(eq(this.longPressStateValue, GestureState.ACTIVE), [
-                  cond(
-                    eq(this.manualTriggerValue, -1),
-                    set(this.pointerY, absoluteY),
-                  ),
+                  set(this.pointerY, absoluteY),
                   call(
                     [
                       this.pointerY,
                       this.scrollTopValue,
                       this.containerOffsetTopValue,
-                      this.manualTriggerValue,
                       this.isSavingValue,
+                      this.activeItemIndexValue,
                     ],
                     this.handleLongPressActive,
                   ),
@@ -1182,10 +1206,7 @@ export class SortableMultilist extends React.Component<Props, State> {
                   ),
                   eq(state, GestureState.ACTIVE),
                 ),
-                or(
-                  neq(this.manualTriggerValue, -1),
-                  eq(this.longPressStateValue, GestureState.ACTIVE),
-                ),
+                greaterThan(this.activeItemIndexValue, -1),
               ),
               [
                 // {{{ Track if touchY is out of bounds
@@ -1600,13 +1621,6 @@ export class SortableMultilist extends React.Component<Props, State> {
       opacity,
     };
 
-    const onPressIn = () => this.manualStartDrag(draggableId);
-
-    const renderPropsWithFns = {
-      ...renderProps,
-      onPressIn,
-    };
-
     return (
       <React.Fragment>
         {isListFirstItem && renderHeader ? (
@@ -1617,7 +1631,7 @@ export class SortableMultilist extends React.Component<Props, State> {
           // @ts-ignore
           style={style}
         >
-          {renderItem(renderPropsWithFns)}
+          {renderItem(renderProps)}
         </Animated.View>
       </React.Fragment>
     );
