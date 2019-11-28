@@ -464,7 +464,16 @@ export class SortableMultilist extends React.Component<Props, State> {
       const dataWithId = setUpInitialData(this.props.data);
       this.dataWithProps = dataWithId;
       this.dataToSave = this.props.data;
-      this.setState({ dataWithId, isDataMultipleLists });
+      this.setState({ dataWithId, isDataMultipleLists }, () => {
+      this.handleFlatListLayout({
+          nativeEvent: {
+            layout: {
+              width: this.state.containerWidth,
+              height: this.state.containerHeight,
+            },
+          },
+        });
+      });
     }
   }
   // }}}

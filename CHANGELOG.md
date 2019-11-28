@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/) and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## 1.1.1
+
+- Bump `react-native-gesture-handler` peer dependency to `^1.5.0` in order to fix compatability issues with `react-native` `^0.60`
+- Bump `react-native-reanimated` peer dependency to `^1.4.0` for `react-native: ^0.60` compatability
+- Patch `componentDidUpdate` to rerun `handleFlatlistLayout` in order to fix #2 issue, where calculations aren't rerun and data isn't rerendered properly.
+
 ## 1.1.0
 
 - `disableLongPress` - Allow disabling of long press interaction, to be used in conjunction with `enableRightDragArea`.
