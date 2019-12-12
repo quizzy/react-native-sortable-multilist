@@ -128,6 +128,7 @@ interface State {
   dataWithId: MappedItemType[];
   isDataMultipleLists: boolean;
   largestItemHeight: number;
+  initialSetupFinished: number;
 }
 // }}}
 
@@ -201,6 +202,7 @@ export class SortableMultilist extends React.Component<Props, State> {
     dataWithId: setUpInitialData(this.props.data),
     isDataMultipleLists: getIsDataMultipleLists(this.props.data),
     largestItemHeight: 0,
+    initialSetupFinished: 0,
   };
   // }}}
 
@@ -407,7 +409,6 @@ export class SortableMultilist extends React.Component<Props, State> {
   public dataWithProps = this.state.dataWithId;
   public dataToSave = this.props.data;
 
-  public initialSetupFinished = 0;
   public activeItemIndex = -1;
   public activeItemArrayIndex = -1;
   public activeHoverIndex = -1;
@@ -465,7 +466,7 @@ export class SortableMultilist extends React.Component<Props, State> {
       this.dataWithProps = dataWithId;
       this.dataToSave = this.props.data;
       this.setState({ dataWithId, isDataMultipleLists }, () => {
-      this.handleFlatListLayout({
+        this.handleFlatListLayout({
           nativeEvent: {
             layout: {
               width: this.state.containerWidth,
@@ -539,7 +540,7 @@ export class SortableMultilist extends React.Component<Props, State> {
     );
     const [flatListOffsetLeft, flatListOffsetTop] = flatListOffset;
 
-    if (this.initialSetupFinished === 0) {
+    if (this.state.initialSetupFinished === 0) {
       const isReady = await new Promise((resolve) => {
         const lastIndex = this.firstItemRefs.length - 1;
         if (this.firstItemRefs[lastIndex].current) {
@@ -706,9 +707,9 @@ export class SortableMultilist extends React.Component<Props, State> {
           itemBoundaries: updatedItemBoundaries,
           scrollSpeed: actualSpeed,
           largestItemHeight,
+          initialSetupFinished: 1,
         },
         () => {
-          this.initialSetupFinished = 1;
           // @ts-ignore // AnimatedNode lint error - unexpected number
           this.initialSetUpFinishedValue.setValue(1);
         },
@@ -1650,11 +1651,13 @@ export class SortableMultilist extends React.Component<Props, State> {
   // Render {{{
   public render() {
     const { keyExtractor } = this.props;
-    const { dataWithId } = this.state;
+    const { dataWithId, initialSetupFinished } = this.state;
 
     if (!dataWithId.length) {
       return null;
     }
+
+    const enabled = initialSetupFinished === 1;
 
     return (
       <TapGestureHandler
@@ -1662,6 +1665,7 @@ export class SortableMultilist extends React.Component<Props, State> {
         onHandlerStateChange={this.onTapStateChange}
         simultaneousHandlers={[this.longPressRef, this.panGestureRef]}
         maxDist={10000}
+        enabled={enabled}
       >
         <Animated.View style={[styles.flexContainerOverflow]}>
           <LongPressGestureHandler
@@ -1671,6 +1675,7 @@ export class SortableMultilist extends React.Component<Props, State> {
             simultaneousHandlers={[this.panGestureRef, this.tapRef]}
             // on android if the movement exceeds the maxDist the longPress will cancel
             maxDist={10000}
+            enabled={enabled}
           >
             <Animated.View style={[styles.flexContainer]}>
               <PanGestureHandler
@@ -1678,6 +1683,7 @@ export class SortableMultilist extends React.Component<Props, State> {
                 onGestureEvent={this.onGestureEvent}
                 onHandlerStateChange={this.onGestureEvent}
                 simultaneousHandlers={[this.tapRef, this.longPressRef]}
+                enabled={enabled}
               >
                 <Animated.View style={[styles.flexContainer]}>
                   <AnimatedFlatList
@@ -1691,6 +1697,7 @@ export class SortableMultilist extends React.Component<Props, State> {
                     // This seems to be defaulted as true on android!!
                     removeClippedSubviews={false}
                     scrollEventThrottle={16}
+                    scrollEnabled={enabled}
                   />
                 </Animated.View>
               </PanGestureHandler>
