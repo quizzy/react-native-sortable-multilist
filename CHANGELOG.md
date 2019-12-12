@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](http://keepachangelog.com/) and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## 1.1.2
+
+- Move `initialSetUpFinished` to state and disable interaction until the first `handleFlatlistLayout` is called.
+
 ## 1.1.1
 
 - Bump `react-native-gesture-handler` peer dependency to `^1.5.0` in order to fix compatability issues with `react-native` `^0.60`

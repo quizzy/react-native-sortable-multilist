@@ -1,6 +1,6 @@
 {
   "name": "react-native-sortable-multilist",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "react-native sortable flatlist that works with multiple data arrays and headers - uses react-native-gesture-handler and react-native-reanimated",
   "homepage": "https://github.com/quizzy/react-native-sortable-multilist#readme",
   "keywords": [
