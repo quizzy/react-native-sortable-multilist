@@ -31,13 +31,13 @@
     "react-native-status-bar-height": "^2.4.0"
   },
   "devDependencies": {
-    "@types/react": "^16.9.3",
-    "@types/react-native": "^0.60.16"
+    "@types/react": "^18.2.0",
+    "@types/react-native": "^0.72.4"
   },
   "peerDependencies": {
-    "react": "^16.9.0",
-    "react-native": "^0.61.1",
-    "react-native-gesture-handler": "^1.5.0",
-    "react-native-reanimated": "^1.4.0"
+    "react": "^18.2.0",
+    "react-native": "^0.72.4",
+    "react-native-gesture-handler": "^2.14.0",
+    "react-native-reanimated": "^3.6.1"
   }
 }
